@@ -1,6 +1,6 @@
 import numpy as np
 
-N = 1200
+N = 3200
 
 data = np.genfromtxt('mat.csv', delimiter=',', dtype='float')
 A = data[:N,:]
