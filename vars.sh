@@ -5,4 +5,4 @@ export PATH=$PATH:$CUDA_HOME/bin
 export OMP_PROC_BIND=spread
 export OMP_PLACES=threads
 
-export KOKKOS_INSTALL_DIR=/home/shihab/src/smundy/build/kokkos
+export KOKKOS_INSTALL_DIR=/home/shihab/src/smundy/build/dep/Kokkos

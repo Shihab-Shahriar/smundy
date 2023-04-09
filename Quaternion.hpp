@@ -35,7 +35,7 @@ struct Quaternion {
 
   Quaternion(const Vec<double, 3> &v, const double angle) { from_rot(v, angle); }
 
-  Quaternion(const double u1, const double u2, const double u3) { from_unit_random(u1, u2, u3); }
+  KOKKOS_INLINE_FUNCTION Quaternion(const double u1, const double u2, const double u3) { from_unit_random(u1, u2, u3); }
 
   KOKKOS_INLINE_FUNCTION Quaternion() { from_unit_random(); }
 
