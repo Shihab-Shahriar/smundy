@@ -133,6 +133,7 @@ int main(int argc, char *argv[]){
                     "Linker::aabb"), indices.extent(0));  //we're allocating twice the needed memory
 
     generate_collision_constraints(spheres, linkers, indices, offsets);
+    compute_center_of_mass_force_and_torque(spheres, linkers);
     Kokkos::fence();
 
 

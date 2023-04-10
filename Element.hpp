@@ -142,16 +142,62 @@ void generate_collision_constraints(Kokkos::View<Sphere *, Kokkos::CudaSpace>& s
             linker.constraint_attachment_norms[3] = -normIJ[0];
             linker.constraint_attachment_norms[4] = -normIJ[1];
             linker.constraint_attachment_norms[5] = -normIJ[2];
+
+            linker.ids[0] = i;
+            linker.ids[1] = indices(j);
         }
     }
     );                            
                                 
 }
 
-void compute_constraint_center_of_mass_force_torque(Kokkos::View<Sphere *, Kokkos::CudaSpace>& spheres,
+void compute_center_of_mass_force_and_torque(Kokkos::View<Sphere *, Kokkos::CudaSpace>& spheres,
                                     Kokkos::View<Linker *, Kokkos::CudaSpace>& linkers)
 {
 
+    // loop over spheres
+    Kokkos::parallel_for("zero_out_force_&_torque",spheres.extent(0), KOKKOS_LAMBDA(int i){
+        Sphere& si = spheres(i);
+        si.force[0] = 0.0;
+        si.force[1] = 0.0;
+        si.force[2] = 0.0;
+
+        si.torque[0] = 0.0;
+        si.torque[1] = 0.0;
+        si.torque[2] = 0.0;
+    });
+
+    // loop over linkers.
+    int N = linkers.extent(0);
+    Kokkos::RangePolicy<Kokkos::Cuda> rpolicy(Kokkos::Cuda{}, 0, N);
+    Kokkos::parallel_for("comp_force_&_torque",rpolicy, KOKKOS_LAMBDA(int i){
+        Linker& linker = linkers(i);
+        if(linker.ids[0]+linker.ids[1]==0) return; //one of the unused linkers
+
+        Sphere& si = spheres(linker.ids[0]);
+        Sphere& sj = spheres(linker.ids[1]);
+
+
+        const double linker_lag_mult = linker.lagrange_multiplier;
+
+        si.force[0] += -linker_lag_mult * linker.constraint_attachment_norms[0];
+        si.force[1] += -linker_lag_mult * linker.constraint_attachment_norms[1];
+        si.force[2] += -linker_lag_mult * linker.constraint_attachment_norms[2];
+
+        si.torque[0] += -linker_lag_mult * (linker.constraint_attachment_locs[1] * linker.constraint_attachment_norms[2] - linker.constraint_attachment_locs[2] * linker.constraint_attachment_norms[1]);
+        si.torque[1] += -linker_lag_mult * (linker.constraint_attachment_locs[2] * linker.constraint_attachment_norms[0] - linker.constraint_attachment_locs[0] * linker.constraint_attachment_norms[2]);
+        si.torque[2] += -linker_lag_mult * (linker.constraint_attachment_locs[0] * linker.constraint_attachment_norms[1] - linker.constraint_attachment_locs[1] * linker.constraint_attachment_norms[0]);
+
+
+        sj.force[0] += -linker_lag_mult * linker.constraint_attachment_norms[3];
+        sj.force[1] += -linker_lag_mult * linker.constraint_attachment_norms[4];
+        sj.force[2] += -linker_lag_mult * linker.constraint_attachment_norms[5];
+
+        sj.torque[0] += -linker_lag_mult * (linker.constraint_attachment_locs[4] * linker.constraint_attachment_norms[5] - linker.constraint_attachment_locs[5] * linker.constraint_attachment_norms[4]);
+        sj.torque[1] += -linker_lag_mult * (linker.constraint_attachment_locs[5] * linker.constraint_attachment_norms[3] - linker.constraint_attachment_locs[3] * linker.constraint_attachment_norms[5]);
+        sj.torque[2] += -linker_lag_mult * (linker.constraint_attachment_locs[3] * linker.constraint_attachment_norms[4] - linker.constraint_attachment_locs[4] * linker.constraint_attachment_norms[3]);
+
+    });
 }
 
 #endif
