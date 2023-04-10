@@ -10,10 +10,13 @@
 #include "Quaternion.hpp"
 #include "smath.hpp"
 
+constexpr double epsilon = Kokkos::Experimental::epsilon_v<double> * 100;
+
+
 class Element{
 public:
     uint64_t id;
-    double coords[3], velocity[3], omega[3], force[3], torque[3];
+    double coords[3], velocity[3], omega[3], force[3], torque[3];  //use Vec<3> instead. maybe replace with Eigen GPU? 
     ArborX::Box aabb;
 };
 
@@ -102,6 +105,69 @@ KOKKOS_FUNCTION ArborX::Box get_aabb(T& t);
 template <>
 KOKKOS_FUNCTION ArborX::Box get_aabb<Sphere>(Sphere& s){
     return s.aabb;    
+}
+
+
+//test this reducer
+double compute_maximum_abs_projected_sep(Kokkos::View<Linker *, Kokkos::CudaSpace>& linkers,
+                                        double dt,
+                                        double &global_maximum_abs_projected_sep){
+
+    double local_maximum_abs_projected_sep = -1.0;
+    int N = linkers.extent(0);
+    Kokkos::parallel_reduce("swap_con_gammas",N, KOKKOS_LAMBDA(const int& i, double& sep){
+        Linker& linker = linkers(i);
+        if(linker.ids[0]+linker.ids[1]==0) return; //one of the unused linkers
+
+        const double sep_new = linker.signed_sep_dist + dt * linker.signed_sep_dist_dot;
+
+        double abs_projected_sep;
+        if (linker.lagrange_multiplier < epsilon) {
+            abs_projected_sep = Kokkos::abs(Kokkos::min(sep_new, 0.0));
+        } else {
+            abs_projected_sep = Kokkos::abs(sep_new);
+        }
+
+        if(abs_projected_sep > sep){
+            sep = abs_projected_sep;
+        }
+
+    }, Kokkos::Max<double>(local_maximum_abs_projected_sep));
+    global_maximum_abs_projected_sep = local_maximum_abs_projected_sep; //no global op on GPU
+    return local_maximum_abs_projected_sep;
+}
+
+void compute_diff_dots(
+    Kokkos::View<Linker *, Kokkos::CudaSpace>& linkers,
+    const double dt,
+    double &global_dot_xkdiff_xkdiff,
+    double &global_dot_xkdiff_gkdiff,
+    double &global_dot_gkdiff_gkdiff)
+{
+    // compute dot(xkdiff, xkdiff), dot(xkdiff, gkdiff), dot(gkdiff, gkdiff)
+    // where xkdiff = xk - xkm1 and gkdiff = gk - gkm1
+    double local_dot_xkdiff_xkdiff = 0.0;
+    double local_dot_xkdiff_gkdiff = 0.0;
+    double local_dot_gkdiff_gkdiff = 0.0;
+
+    int N = linkers.extent(0);
+    Kokkos::parallel_reduce("swap_con_gammas",N, KOKKOS_LAMBDA(const int& i, double& xk_xk, double& xk_gk, double& gk_gk){
+        Linker& linker = linkers(i);
+        if(linker.ids[0]+linker.ids[1]==0) return; //one of the unused linkers
+
+        const double xkdiff = linker.lagrange_multiplier - linker.lagrange_multiplier_tmp;
+        const double gkdiff = dt * (linker.signed_sep_dist_dot - linker.signed_sep_dist_dot_tmp);
+
+        xk_xk += xkdiff * xkdiff;
+        xk_gk += xkdiff * gkdiff;
+        gk_gk += gkdiff * gkdiff;
+
+    }, local_dot_xkdiff_xkdiff, local_dot_xkdiff_gkdiff, local_dot_gkdiff_gkdiff); 
+
+    global_dot_xkdiff_xkdiff = local_dot_xkdiff_xkdiff;
+    global_dot_xkdiff_gkdiff = local_dot_xkdiff_gkdiff;
+    global_dot_gkdiff_gkdiff = local_dot_gkdiff_gkdiff;
+
 }
 
 void generate_collision_constraints(Kokkos::View<Sphere *, Kokkos::CudaSpace>& spheres,
@@ -200,5 +266,223 @@ void compute_center_of_mass_force_and_torque(Kokkos::View<Sphere *, Kokkos::Cuda
     });
 }
 
-#endif
+// compute the mobility matrix for the sphere
+void compute_the_mobility_problem(Kokkos::View<Sphere *, Kokkos::CudaSpace>& spheres, double viscosity){
 
+    Kokkos::parallel_for("compute_the_mobility_problem",spheres.extent(0), KOKKOS_LAMBDA(int i){
+        Sphere& si = spheres(i);
+        Quaternion quat(si.orientation[0],si.orientation[1],si.orientation[2],si.orientation[3] );
+        Vec<double, 3> q = quat.rotate(Vec<double, 3>{0,0,1});
+
+        const double qq[3][3] = {{q[0] * q[0], q[0] * q[1], q[0] * q[2]}, {q[1] * q[0], q[1] * q[1], q[1] * q[2]},
+            {q[2] * q[0], q[2] * q[1], q[2] * q[2]}};
+        const double Imqq[3][3] = {{1 - qq[0][0], -qq[0][1], -qq[0][2]}, {-qq[1][0], 1 - qq[1][1], -qq[1][2]},
+            {-qq[2][0], -qq[2][1], 1 - qq[2][2]}};
+
+        constexpr auto PI = Kokkos::numbers::pi_v<double>;
+        const double drag_para = 6 * PI * si.radius * viscosity;
+        const double drag_perp = drag_para;
+        const double drag_rot = 8 * PI * si.radius * si.radius * si.radius * viscosity;
+        const double drag_para_inv = 1.0 / drag_para;
+        const double drag_perp_inv = 1.0 / drag_perp;
+        const double drag_rot_inv = 1.0 / drag_rot;
+
+        const double mob_trans[3][3] = {
+          {drag_para_inv * qq[0][0] + drag_perp_inv * Imqq[0][0], drag_para_inv * qq[0][1] + drag_perp_inv * Imqq[0][1],
+              drag_para_inv * qq[0][2] + drag_perp_inv * Imqq[0][2]},
+          {drag_para_inv * qq[1][0] + drag_perp_inv * Imqq[1][0], drag_para_inv * qq[1][1] + drag_perp_inv * Imqq[1][1],
+              drag_para_inv * qq[1][2] + drag_perp_inv * Imqq[1][2]},
+          {drag_para_inv * qq[2][0] + drag_perp_inv * Imqq[2][0], drag_para_inv * qq[2][1] + drag_perp_inv * Imqq[2][1],
+              drag_para_inv * qq[2][2] + drag_perp_inv * Imqq[2][2]}};
+        const double mob_rot[3][3] = {
+          {drag_rot_inv * qq[0][0] + drag_rot_inv * Imqq[0][0], drag_rot_inv * qq[0][1] + drag_rot_inv * Imqq[0][1],
+              drag_rot_inv * qq[0][2] + drag_rot_inv * Imqq[0][2]},
+          {drag_rot_inv * qq[1][0] + drag_rot_inv * Imqq[1][0], drag_rot_inv * qq[1][1] + drag_rot_inv * Imqq[1][1],
+              drag_rot_inv * qq[1][2] + drag_rot_inv * Imqq[1][2]},
+          {drag_rot_inv * qq[2][0] + drag_rot_inv * Imqq[2][0], drag_rot_inv * qq[2][1] + drag_rot_inv * Imqq[2][1],
+              drag_rot_inv * qq[2][2] + drag_rot_inv * Imqq[2][2]}};
+
+        si.velocity[0] =
+          mob_trans[0][0] * si.force[0] + mob_trans[0][1] * si.force[1] + mob_trans[0][2] * si.force[2];
+        si.velocity[1] =
+            mob_trans[1][0] * si.force[0] + mob_trans[1][1] * si.force[1] + mob_trans[1][2] * si.force[2];
+        si.velocity[2] =
+            mob_trans[2][0] * si.force[0] + mob_trans[2][1] * si.force[1] + mob_trans[2][2] * si.force[2];
+
+        si.omega[0] = mob_rot[0][0] * si.torque[0] + mob_rot[0][1] * si.torque[1] + mob_rot[0][2] * si.torque[2];
+        si.omega[1] = mob_rot[1][0] * si.torque[0] + mob_rot[1][1] * si.torque[1] + mob_rot[1][2] * si.torque[2];
+        si.omega[2] = mob_rot[2][0] * si.torque[0] + mob_rot[2][1] * si.torque[1] + mob_rot[2][2] * si.torque[2];
+
+    });
+}
+
+
+void compute_rate_of_change_of_sep(Kokkos::View<Sphere *, Kokkos::CudaSpace>& spheres,
+                                    Kokkos::View<Linker *, Kokkos::CudaSpace>& linkers)
+{
+    int N = linkers.extent(0);
+    Kokkos::parallel_for("rate_of_change_of_sep",N, KOKKOS_LAMBDA(int i){
+        Linker& linker = linkers(i);
+        if(linker.ids[0]+linker.ids[1]==0) return; //one of the unused linkers
+
+        Sphere& si = spheres(linker.ids[0]);
+        Sphere& sj = spheres(linker.ids[1]);
+
+
+        Vec<double, 3> com_velocityI(si.velocity);
+        Vec<double, 3> com_velocityJ(sj.velocity);
+
+        Vec<double, 3> com_omegaI(si.omega);
+        Vec<double, 3> com_omegaJ(sj.omega);
+
+        Vec<double, 3> con_posI{linker.constraint_attachment_locs[0],linker.constraint_attachment_locs[1],linker.constraint_attachment_locs[2]};
+        Vec<double, 3> con_posJ{linker.constraint_attachment_locs[3],linker.constraint_attachment_locs[4],linker.constraint_attachment_locs[5]};
+
+        Vec<double, 3> con_normI{linker.constraint_attachment_norms[0],linker.constraint_attachment_norms[1],linker.constraint_attachment_norms[2]};
+        Vec<double, 3> con_normJ{linker.constraint_attachment_norms[3],linker.constraint_attachment_norms[4],linker.constraint_attachment_norms[5]};
+
+        const Vec<double, 3> con_velI = com_velocityI + com_omegaI.cross(con_posI);
+        const Vec<double, 3> con_velJ = com_velocityJ + com_omegaJ.cross(con_posJ);
+        linker.signed_sep_dist_dot = -con_normI.dot(con_velI) - con_normJ.dot(con_velJ);
+    });
+}
+
+void update_con_gammas(Kokkos::View<Linker *, Kokkos::CudaSpace>& linkers, double alpha, double dt){
+    int N = linkers.extent(0);
+    Kokkos::parallel_for("update_con_gammas",N, KOKKOS_LAMBDA(int i){
+        Linker& linker = linkers(i);
+        if(linker.ids[0]+linker.ids[1]==0) return; //one of the unused linkers
+
+        const double sep_new = linker.signed_sep_dist + dt* linker.signed_sep_dist_dot;
+        double tmp = linker.lagrange_multiplier_tmp - alpha * sep_new;
+        linker.lagrange_multiplier = tmp>0? tmp:0.0;
+    });
+}
+
+void swap_con_gammas(Kokkos::View<Linker *, Kokkos::CudaSpace>& linkers){
+    int N = linkers.extent(0);
+    Kokkos::parallel_for("swap_con_gammas",N, KOKKOS_LAMBDA(int i){
+        Linker& linker = linkers(i);
+        if(linker.ids[0]+linker.ids[1]==0) return; //one of the unused linkers
+
+        linker.lagrange_multiplier_tmp = linker.lagrange_multiplier;
+        linker.signed_sep_dist_dot_tmp = linker.signed_sep_dist_dot;
+    });
+}
+
+void step_euler(Kokkos::View<Sphere *, Kokkos::CudaSpace>& spheres, double dt){
+    int N = spheres.extent(0);
+    Kokkos::parallel_for("step_euler",N, KOKKOS_LAMBDA(int i){
+        Sphere& si = spheres(i);
+
+        si.coords[0] += dt * si.velocity[0];
+        si.coords[1] += dt * si.velocity[1];
+        si.coords[2] += dt * si.velocity[2];
+
+        Quaternion quat(si.orientation[0],si.orientation[1],si.orientation[2],si.orientation[3]);
+        quat.rotate_self(si.omega[0], si.omega[1], si.omega[2], dt);
+
+        si.orientation[0] = quat.w;
+        si.orientation[1] = quat.x;
+        si.orientation[2] = quat.y;
+        si.orientation[3] = quat.z;
+    });
+}
+
+void resolve_collision(Kokkos::View<Sphere *, Kokkos::CudaSpace>& spheres,
+                Kokkos::View<Linker *, Kokkos::CudaSpace>& linkers,
+                const double viscosity,
+                const double dt,
+                const double con_tol,
+                const int con_ite_max)
+{
+    // Matrix-free BBPGD
+    int ite_count = 0;
+
+    // compute gkm1 = D^T M D xkm1
+
+    // compute F = D xkm1
+    compute_center_of_mass_force_and_torque(spheres, linkers);
+
+    // compute U = M F
+    compute_the_mobility_problem(spheres, viscosity);
+
+    // compute gkm1 = D^T U
+    compute_rate_of_change_of_sep(spheres, linkers);
+
+
+    double maximum_abs_projected_sep = -1.0;
+    compute_maximum_abs_projected_sep(linkers, dt, maximum_abs_projected_sep);
+
+    std::cout << "maximum_abs_projected_sep " << maximum_abs_projected_sep << std::endl;
+ 
+    if (maximum_abs_projected_sep < con_tol) {
+        // the initial guess was correct, nothing more is necessary
+    }
+    else{
+        double alpha = 1.0 / maximum_abs_projected_sep;
+        while (ite_count < con_ite_max) {
+            ++ite_count;
+
+            // compute xk = xkm1 - alpha * gkm1;
+            // and perform the bound projection xk = boundProjection(xk)
+            update_con_gammas(linkers, alpha, dt);
+
+            // compute new grad with xk: gk = D^T M D xk
+            // compute F = D xk
+            compute_center_of_mass_force_and_torque(spheres, linkers);
+
+            // compute U = M F
+            compute_the_mobility_problem(spheres, viscosity);
+
+            // compute gk = D^T U
+            compute_rate_of_change_of_sep(spheres, linkers);
+
+            compute_maximum_abs_projected_sep(linkers, dt, maximum_abs_projected_sep);
+
+            std::cout << ite_count<<": maximum_abs_projected_sep " << maximum_abs_projected_sep << std::endl;
+
+            if (maximum_abs_projected_sep < con_tol) {
+                // con_gammas worked
+                // exit the loop
+                break;
+            }
+
+            ///////////////////////////////////////////////////////////////////////////
+            // compute dot(xkdiff, xkdiff), dot(xkdiff, gkdiff), dot(gkdiff, gkdiff) //
+            // where xkdiff = xk - xkm1 and gkdiff = gk - gkm1                       //
+            ///////////////////////////////////////////////////////////////////////////
+            double global_dot_xkdiff_xkdiff = 0.0;
+            double global_dot_xkdiff_gkdiff = 0.0;
+            double global_dot_gkdiff_gkdiff = 0.0;
+            compute_diff_dots(linkers, dt, global_dot_xkdiff_xkdiff, global_dot_xkdiff_gkdiff, global_dot_gkdiff_gkdiff);
+
+
+            ////////////////////////////////////////////
+            // compute the Barzilai-Borwein step size //
+            ////////////////////////////////////////////
+            // alternating bb1 and bb2 methods
+            double a;
+            double b;
+            if (ite_count % 2 == 0) {
+                // Barzilai-Borwein step size Choice 1
+                a = global_dot_xkdiff_xkdiff;
+                b = global_dot_xkdiff_gkdiff;
+            } else {
+                // Barzilai-Borwein step size Choice 2
+                a = global_dot_xkdiff_gkdiff;
+                b = global_dot_gkdiff_gkdiff;
+            }  
+
+            if (std::abs(b) < epsilon) {
+                b += epsilon;  // prevent div 0 error
+            }
+            alpha = a / b;
+
+            swap_con_gammas(linkers);
+        }
+    }
+
+}
+
+#endif

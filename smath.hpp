@@ -63,6 +63,23 @@ public:
         return Vec<T,size>(vals);
     }
 
+     KOKKOS_INLINE_FUNCTION Vec cross(const Vec& other) const {
+        assert(size==3);
+        T result[3];
+        result[0] = data[1] * other[2] - data[2] * other[1];
+        result[1] = data[2] * other[0] - data[0] * other[2];
+        result[2] = data[0] * other[1] - data[1] * other[0];
+        return Vec<T,size>(result);
+    }
+
+    KOKKOS_INLINE_FUNCTION T dot(const Vec& other) const {
+        T result = 0;
+        for(int i=0;i<size;i++) {
+            result += data[i] * other[i];
+        }
+        return result;
+    }
+
     T data[size];
 };
 

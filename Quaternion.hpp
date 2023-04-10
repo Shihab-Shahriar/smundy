@@ -2,6 +2,7 @@
 #define Quaternion_H
 
 #include <Kokkos_Core.hpp>
+#include <Kokkos_NumericTraits.hpp>
 #include "smath.hpp"
 
 struct Quaternion {
@@ -12,7 +13,7 @@ struct Quaternion {
   double z;
 
   // constructors
-  Quaternion(const Vec<double, 4> &q)
+  KOKKOS_INLINE_FUNCTION Quaternion(const Vec<double, 4> &q)
   {
     w = q[0];
     x = q[1];
@@ -20,7 +21,7 @@ struct Quaternion {
     z = q[3];
   }
 
-  Quaternion(const double qw, const double qx, const double qy, const double qz)
+  KOKKOS_INLINE_FUNCTION Quaternion(const double qw, const double qx, const double qy, const double qz)
   {
     w = qw;
     x = qx;
@@ -28,12 +29,12 @@ struct Quaternion {
     z = qz;
   }
 
-  Quaternion(const Vec<double, 3> &v, const double sina_2, const double cosa_2)
+  KOKKOS_INLINE_FUNCTION Quaternion(const Vec<double, 3> &v, const double sina_2, const double cosa_2)
   {
     from_rot(v, sina_2, cosa_2);
   }
 
-  Quaternion(const Vec<double, 3> &v, const double angle) { from_rot(v, angle); }
+  KOKKOS_INLINE_FUNCTION Quaternion(const Vec<double, 3> &v, const double angle) { from_rot(v, angle); }
 
   KOKKOS_INLINE_FUNCTION Quaternion(const double u1, const double u2, const double u3) { from_unit_random(u1, u2, u3); }
 
@@ -49,7 +50,7 @@ struct Quaternion {
   }
 
   // rotation around a given axis (angle without range restriction)
-  void from_rot(const Vec<double, 3> &v, const double angle)
+  KOKKOS_FUNCTION void from_rot(const Vec<double, 3> &v, const double angle)
   {
     const double sina_2 = Kokkos::sin(angle / 2);
     const double cosa_2 = Kokkos::cos(angle / 2);
@@ -88,7 +89,7 @@ struct Quaternion {
   }
 
   // normalize the quaternion q / ||q||
-  void normalize()
+  KOKKOS_FUNCTION void normalize()
   {
     const double norm = Kokkos::sqrt(w * w + x * x + y * y + z * z);
     w = w / norm;
@@ -99,7 +100,7 @@ struct Quaternion {
 
   // rotate a point v in 3D space around the origin using this quaternion
   // see EN Wikipedia on Quaternions and spatial rotation
-  Vec<double, 3> rotate(const Vec<double, 3> &v) const
+  KOKKOS_FUNCTION Vec<double, 3> rotate(const Vec<double, 3> &v) const
   {
     const double t2 = x * y;
     const double t3 = x * z;
@@ -116,7 +117,7 @@ struct Quaternion {
   }
 
   // rotate a point v in 3D space around a given point p using this quaternion
-  Vec<double, 3> rotate_around_point(const Vec<double, 3> &v, const Vec<double, 3> &p)
+  KOKKOS_FUNCTION Vec<double, 3> rotate_around_point(const Vec<double, 3> &v, const Vec<double, 3> &p)
   {
     return rotate(v - p) + p;
   }
@@ -129,10 +130,10 @@ struct Quaternion {
    * @param omega rotational velocity
    * @param dt time interval
    */
-  void rotate_self(const Vec<double, 3> &rot_vel, const double dt)
+  KOKKOS_FUNCTION void rotate_self(const Vec<double, 3> &rot_vel, const double dt)
   {
     const double rot_vel_norm = Kokkos::sqrt(rot_vel[0] * rot_vel[0] + rot_vel[1] * rot_vel[1] + rot_vel[2] * rot_vel[2]);
-    if (rot_vel_norm < std::numeric_limits<double>::epsilon()) {
+    if (rot_vel_norm < Kokkos::Experimental::epsilon_v<double>) {
       return;
     }
     const double rot_vel_norm_inv = 1.0 / rot_vel_norm;
@@ -158,10 +159,10 @@ struct Quaternion {
    * @param omega rotational velocity
    * @param dt time interval
    */
-  void rotate_self(const double rot_vel_x, const double rot_vel_y, const double rot_vel_z, const double dt)
+  KOKKOS_FUNCTION void rotate_self(const double rot_vel_x, const double rot_vel_y, const double rot_vel_z, const double dt)
   {
     const double rot_vel_norm = Kokkos::sqrt(rot_vel_x * rot_vel_x + rot_vel_y * rot_vel_y + rot_vel_z * rot_vel_z);
-    if (rot_vel_norm < std::numeric_limits<double>::epsilon()) {
+    if (rot_vel_norm < Kokkos::Experimental::epsilon_v<double>) {
       return;
     }
     const double rot_vel_norm_inv = 1.0 / rot_vel_norm;
