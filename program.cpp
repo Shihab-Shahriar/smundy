@@ -83,10 +83,6 @@ int main(int argc, char *argv[]){
         Kokkos::view_alloc(execution_space, Kokkos::WithoutInitializing,
                         "Sphere::aabb"), N);
 
-    Kokkos::View<Linker *, CudaMemorySpace> linkers(
-        Kokkos::view_alloc(execution_space, Kokkos::WithoutInitializing,
-                        "Linker::aabb"), N);
-
     Kokkos::Random_XorShift64_Pool<CudaMemorySpace> random_pool(12345);
 
     std::cout<<"Allocated Views"<<endl;
@@ -94,7 +90,6 @@ int main(int argc, char *argv[]){
     Kokkos::RangePolicy<ExecutionSpace> rpolicy(0,N);
     Kokkos::parallel_for("inits", rpolicy, KOKKOS_LAMBDA(int i){
         Kokkos::Random_XorShift64<CudaMemorySpace> gen = random_pool.get_state();
-        random_init(linkers(i), gen, CONFIG);
         random_init(spheres(i), gen, CONFIG);
         random_pool.free_state(gen);
     });
@@ -121,9 +116,9 @@ int main(int argc, char *argv[]){
 
     auto spheres_host = Kokkos::create_mirror_view(spheres);
     Kokkos::deep_copy(spheres_host, spheres);
-    for(int i=0;i<N;i++){
-        std::cout<< spheres_host(i).coords[0]<<","<<spheres_host(i).coords[1]<<","<<spheres_host(i).coords[2]<<endl;
-    }
+    // for(int i=0;i<N;i++){
+    //     std::cout<< spheres_host(i).coords[0]<<","<<spheres_host(i).coords[1]<<","<<spheres_host(i).coords[2]<<endl;
+    // }
 
     ArborX::BVH<CudaMemorySpace> index(execution_space, boxes);
 
@@ -132,22 +127,40 @@ int main(int argc, char *argv[]){
     index.query(execution_space, boxes, ExcludeSelfCollision{}, indices, offsets);
     execution_space.fence();
 
+
+    Kokkos::View<Linker *, CudaMemorySpace> linkers(
+    Kokkos::view_alloc(execution_space, Kokkos::WithoutInitializing,
+                    "Linker::aabb"), indices.extent(0));  //we're allocating twice the needed memory
+
+    generate_collision_constraints(spheres, linkers, indices, offsets);
+    Kokkos::fence();
+
+
     std::cout << "Starting checking results." << '\n';
     auto offsets_host =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, offsets);
     auto indices_host =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, indices);
-    std::cout<<"XXXXXXXXXXXXXX"<<endl;
+    auto linkers_host = 
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, linkers);
 
+    Kokkos::fence();
+    std::cout << "Copied Views to host" << '\n';
 
-    std::cout<<offsets_host.extent(0)<<endl;
+    // for(int i=0;i<N;i++){
+    //     for (int j = offsets_host(i); j < offsets_host(i + 1); ++j)
+    //     {
+    //       printf("%i %i\n", i, indices_host(j));
+    //     }
+    // }
 
-    for(int i=0;i<N;i++){
-        for (int j = offsets_host(i); j < offsets_host(i + 1); ++j)
-        {
-          printf("%i %i\n", i, indices_host(j));
-        }
+    for(int i=0;i<10;i++){
+        Linker linker = linkers_host(i);
+        printf("%f %f %f\n", linker.signed_sep_dist, linker.lagrange_multiplier, linker.constraint_attachment_locs[0]);
     }
+
+    std::cout<<offsets.extent(0)<<endl;
+    std::cout<<indices.extent(0)<<endl;
 
     return 0;
 }
