@@ -3,3 +3,6 @@ build/
 a.out
 out.txt
 dep/
+packages/
+_deps/
+install/
