@@ -41,7 +41,7 @@ struct Quaternion {
   KOKKOS_INLINE_FUNCTION Quaternion() { from_unit_random(); }
 
   // quaternion from rotation around a given axis (given sine and cosine of HALF the rotation angle)
-  void from_rot(const Vec<double, 3> &v, const double sina_2, const double cosa_2)
+  KOKKOS_FUNCTION void from_rot(const Vec<double, 3> &v, const double sina_2, const double cosa_2)
   {
     w = cosa_2;
     x = sina_2 * v[0];

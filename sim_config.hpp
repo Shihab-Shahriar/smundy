@@ -2,6 +2,7 @@
 #define SIM_CONFIG_H
 
 #include <cstddef>
+#include <stk_mesh/base/Ngp.hpp>
 
 struct Configuration{
     Configuration(){}
@@ -17,10 +18,13 @@ struct Configuration{
     const unsigned int spatial_dimension = 3;
     const double domain_low[3] = {0.0, 0.0, 0.0};
     const double domain_high[3] = {30.0, 30.0, 30.0};
-    const size_t num_elements_per_group = 2700;
+    const size_t num_elements_per_group = 270000;
     const int NSpheres = num_elements_per_group;
     const int NLinkers = num_elements_per_group;
     const int Total_elements = NSpheres + NLinkers;
 };
+
+using EntityPair = Kokkos::pair<stk::mesh::Entity, stk::mesh::Entity>;
+
 
 #endif
