@@ -1,0 +1,2 @@
++ GPU doesn't know or care about any "global" op- ops that require syncing with other MPI ranks. Everything coded as if -np=1. For any such sync, make CPU do this.
+ 

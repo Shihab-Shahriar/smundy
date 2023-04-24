@@ -39,11 +39,10 @@
 
 
 #include "sim_config.hpp"
-#include "Element.hpp"
 #include "Quaternion.hpp"
 #include "smath.hpp"
-#include "World.hpp"
 #include "neighbor_search.hpp"
+#include "collision_kernels.hpp"
 
 using namespace std;
 
@@ -171,14 +170,14 @@ int main(int argc, char *argv[]){
     // set topologies of new entities
     for (int i = 0; i < num_particles_local; i++) {
     stk::mesh::Entity particle_i = requested_entities[num_nodes_requested + i];
-    bulkData.change_entity_parts(particle_i, add_particlePart);
+        bulkData.change_entity_parts(particle_i, add_particlePart);
     }
 
     // the elements should be associated with a topology before they are connected to their nodes/edges
     // set downward relations of entities
     for (int i = 0; i < num_particles_local; i++) {
     stk::mesh::Entity particle_i = requested_entities[num_nodes_requested + i];
-    bulkData.declare_relation(particle_i, requested_entities[i], 0);
+        bulkData.declare_relation(particle_i, requested_entities[i], 0);
     }
     bulkData.modification_end();
     double time_to_mod = timer.seconds();
@@ -197,6 +196,15 @@ int main(int argc, char *argv[]){
     stk::mesh::NgpField<double>& particleRadiusField_device = stk::mesh::get_updated_ngp_field<double>(particleRadiusField);
     stk::mesh::NgpField<double>& elemAabbField_device = stk::mesh::get_updated_ngp_field<double>(elemAabbField);
 
+    // Linker GPU fields
+    stk::mesh::NgpField<double>& linkerSignedSepField_device = stk::mesh::get_updated_ngp_field<double>(linkerSignedSepField);
+    stk::mesh::NgpField<double>& linkerSignedSepDotField_device = stk::mesh::get_updated_ngp_field<double>(linkerSignedSepDotField);
+    stk::mesh::NgpField<double>& linkerSignedSepDotTmpField_device = stk::mesh::get_updated_ngp_field<double>(linkerSignedSepDotTmpField);
+    stk::mesh::NgpField<double>& linkerLagMultField_device = stk::mesh::get_updated_ngp_field<double>(linkerLagMultField);
+    stk::mesh::NgpField<double>& linkerLagMultTmpField_device = stk::mesh::get_updated_ngp_field<double>(linkerLagMultTmpField);
+    stk::mesh::NgpField<double>& conLocField_device = stk::mesh::get_updated_ngp_field<double>(conLocField);
+    stk::mesh::NgpField<double>& conNormField_device = stk::mesh::get_updated_ngp_field<double>(conNormField);
+
 
     //Node fields
     stk::mesh::NgpField<double>& nodeCoordField_device = stk::mesh::get_updated_ngp_field<double>(nodeCoordField);
@@ -209,7 +217,6 @@ int main(int argc, char *argv[]){
     //Initialize
     {
 
-    typedef stk::ngp::TeamPolicy<stk::mesh::NgpMesh::MeshExecSpace>::member_type TeamHandleType;
     const auto& teamPolicy = stk::ngp::TeamPolicy<stk::mesh::NgpMesh::MeshExecSpace>(ngpMesh.num_buckets(stk::topology::ELEM_RANK),
                                                                                     Kokkos::AUTO);
 
@@ -295,13 +302,22 @@ int main(int argc, char *argv[]){
     timer.reset();
     
     const int N = CONFIG.num_elements_per_group;
-    
+
     // Figure out optimal chunk_size value for the constructor below.
     Kokkos::Experimental::DynamicView<EntityPair*, stk::ngp::MemSpace> neighbors("Search_pairs", 16*1024, N*N);
 
     generate_neighbor_pairs(ngpMesh, elemAabbField_device, neighbors, N);
     Kokkos::fence();
-    
+    double sep = -1.0;
+    compute_maximum_abs_projected_sep(ngpMesh, linkerLagMultField_device, linkerSignedSepField_device, 
+                                      linkerSignedSepDotField_device, CONFIG.dt, sep);
+    double global_dot_xkdiff_xkdiff = 0.0;
+    double global_dot_xkdiff_gkdiff = 0.0;
+    double global_dot_gkdiff_gkdiff = 0.0;
+    compute_diff_dots(  ngpMesh, linkerLagMultField_device, linkerLagMultTmpField_device, 
+                        linkerSignedSepDotField_device, linkerSignedSepDotTmpField_device,
+                        CONFIG.dt, global_dot_xkdiff_xkdiff, global_dot_xkdiff_gkdiff, global_dot_gkdiff_gkdiff);
+
     double time2 = timer.seconds();
     cout<<time2<<endl;
 

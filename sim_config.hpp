@@ -25,6 +25,7 @@ struct Configuration{
 };
 
 using EntityPair = Kokkos::pair<stk::mesh::Entity, stk::mesh::Entity>;
+typedef stk::ngp::TeamPolicy<stk::mesh::NgpMesh::MeshExecSpace>::member_type TeamHandleType;
 
 
 #endif
