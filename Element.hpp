@@ -11,7 +11,7 @@
 #include "smath.hpp"
 
 constexpr double epsilon = Kokkos::Experimental::epsilon_v<double> * 100;
-
+using namespace mundy;
 
 class Element{
 public:

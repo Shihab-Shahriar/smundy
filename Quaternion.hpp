@@ -5,6 +5,8 @@
 #include <Kokkos_NumericTraits.hpp>
 #include "smath.hpp"
 
+namespace mundy{
+
 struct Quaternion {
   // w,x,y,z
   double w;
@@ -181,5 +183,6 @@ struct Quaternion {
   }
 };  // Quaternion
 
+} //namespace mundy
 
 #endif

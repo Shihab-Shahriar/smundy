@@ -7,6 +7,10 @@
 
 #include <Kokkos_Core.hpp>
 
+#include "stk_mesh/base/EntityFieldData.hpp"
+
+
+namespace mundy{
 
 template <typename T, size_t size>
 class Vec
@@ -17,6 +21,10 @@ public:
     }
 
     KOKKOS_INLINE_FUNCTION Vec(T arr[size]){
+        for(int i=0;i<size;i++) data[i] = arr[i];
+    }
+
+    KOKKOS_INLINE_FUNCTION Vec(stk::mesh::EntityFieldData<T> arr){
         for(int i=0;i<size;i++) data[i] = arr[i];
     }
 
@@ -90,6 +98,7 @@ std::ostream& operator<<(std::ostream& os, const Vec<T,size> & v){
     return os<<")";
 }
 
+} //namespace mundy
 
 #endif
 
