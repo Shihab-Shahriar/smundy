@@ -5,3 +5,5 @@ module load GCC/10.2.0 CUDA/11.2.1 OpenMPI/4.0.5 netCDF/4.7.4 HDF5/1.10.7 CMake/
 export ROOT_DIR=/mnt/gs21/scratch/khanmd/smundy
 export Trilinos_Install_DIR=${ROOT_DIR}/install/trilinos
 export Trilinos_Source_DIR=${ROOT_DIR}/packages/Trilinos
+
+export CUDA_MANAGED_FORCE_DEVICE_ALLOC=1

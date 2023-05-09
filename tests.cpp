@@ -4,6 +4,13 @@
 #include <iostream>
 #include <fstream>
 
+#include <Kokkos_Core.hpp>
+#include <Kokkos_Random.hpp>
+#include <Kokkos_DynamicView.hpp>
+#include <ArborX.hpp>
+#include <ArborX_Version.hpp>
+
+
 #include <type_traits>
 #include <gtest/gtest.h>                             // for AssertHelper, etc
 #include <stddef.h>                                  // for size_t
@@ -32,19 +39,80 @@
 #include <stk_mesh/base/GetNgpField.hpp>
 
 
-void output_field_on_file(){
-    std::ofstream ofs;
-    ofs.open("aabb.txt");
-    const stk::mesh::BucketVector &elementBuckets =
-      bulkData.get_buckets(stk::topology::ELEMENT_RANK, metaData.locally_owned_part());
-    for (size_t bucket_idx = 0; bucket_idx < elementBuckets.size(); ++bucket_idx) {
-        stk::mesh::Bucket &elemBucket = *elementBuckets[bucket_idx];
-        for (size_t elem_idx = 0; elem_idx < elemBucket.size(); ++elem_idx) {
-            stk::mesh::Entity const &element = elemBucket[elem_idx];
+#include "sim_config.hpp"
+#include "Quaternion.hpp"
+#include "smath.hpp"
+#include "neighbor_search.hpp"
+#include "collision_kernels.hpp"
 
-            double *aabb = stk::mesh::field_data(elemAabbField, element);
-            ofs<<aabb[0]<<","<< aabb[1]<<","<< aabb[2]<<","<< aabb[3]<<","<< aabb[4]<<","<< aabb[5]<<endl;
-        }
-    }
-    ofs.close();
+
+using namespace std;
+
+TEST(GPU, HelloWorld){
+    int x = 1;
+    EXPECT_EQ(x, 1) <<"trouble "<<endl;
+    //EXPECT_EQ(x, 2) <<"supposed to fail "<<endl;
+
+}
+
+void run_vector_gpu_test()
+{
+  size_t n = 10;
+  stk::NgpVector<double> vec("vec", n);
+  Kokkos::parallel_for(stk::ngp::DeviceRangePolicy(0, n),
+                       KOKKOS_LAMBDA(const int i)
+                       {
+                         vec.device_get(i) = i;
+                       });
+  vec.copy_device_to_host();
+  for(size_t i=0; i<n; i++)
+    EXPECT_EQ(i, vec[i]);
+}
+
+TEST(GPU, gpu_runs)
+{
+  Kokkos::ScopeGuard guard();
+  run_vector_gpu_test();
+}
+
+
+// class UpdateNgpMesh : public stk::unit_test_util::simple_fields::MeshFixture
+// {
+// public:
+//   void setup_test_mesh()
+//   {
+//     setup_empty_mesh(stk::mesh::BulkData::NO_AUTO_AURA);
+//     std::string meshDesc = "0,1,HEX_8,1,2,3,4,5,6,7,8\n";
+//     stk::unit_test_util::simple_fields::setup_text_mesh(get_bulk(), meshDesc);
+//   }
+// };
+
+// TEST_F(UpdateNgpMesh, lazyAutoUpdate)
+// {
+//   setup_test_mesh();
+
+//   // Don't store persistent pointers/references if you want automatic updates
+//   // when acquiring an NgpMesh from BulkData
+//   stk::mesh::NgpMesh * ngpMesh = &stk::mesh::get_updated_ngp_mesh(get_bulk());
+
+//   get_bulk().modification_begin();
+//   get_bulk().modification_end();
+
+// #ifdef STK_USE_DEVICE_MESH
+//   EXPECT_FALSE(ngpMesh->is_up_to_date());
+//   ngpMesh = &stk::mesh::get_updated_ngp_mesh(get_bulk());
+//   EXPECT_TRUE(ngpMesh->is_up_to_date());
+// #else
+//   EXPECT_TRUE(ngpMesh->is_up_to_date());
+//   ngpMesh = &stk::mesh::get_updated_ngp_mesh(get_bulk());
+//   EXPECT_TRUE(ngpMesh->is_up_to_date());
+// #endif
+// }
+
+
+int main(int argc, char **argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    Kokkos::ScopeGuard guard(argc, argv);
+
+    return RUN_ALL_TESTS();
 }

@@ -140,7 +140,7 @@ int main(int argc, char *argv[]){
     // get the averge number of particles per process
     const int num_particles_global = CONFIG.num_elements_per_group;
     size_t num_particles_local = num_particles_global / bulkData.parallel_size();
-    printf("N = %d, R = %f, per_vol=%f, tot_vol=%f, per_sphere=%f\n", num_particles_local,CONFIG.R,CONFIG.per_volume, CONFIG.tot_volume, CONFIG.vol_per_sphere);
+    printf("N = %d, dim = %f\n", num_particles_local, CONFIG.domain_high[0]);
 
     // num_particles_local isn't guarenteed to divide perfectly
     // add the extra workload to the first r ranks

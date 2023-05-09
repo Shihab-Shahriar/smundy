@@ -12,20 +12,14 @@ struct Configuration{
     const double time_snap = 5e-3;
     const double time_stop = 1;
 
-    const double PI = Kokkos::numbers::pi_v<double>;
-    const double orig_R = 0.133;
-    const double per_volume = PI * (orig_R*orig_R*orig_R) * (4.0/3.0);
-    const double tot_volume = per_volume * 270000;
-
-    const size_t num_elements_per_group = 1000000; //270000*4;
-    const double vol_per_sphere = tot_volume / num_elements_per_group;
-    const double R = std::cbrt((3*vol_per_sphere)/(4*PI));
+    const size_t num_elements_per_group = 640000;
+    const double R = 0.133;
     const double cutoff = 2 * R;
     const double con_tol = 1e-5;
     const int con_ite_max = 1000;
     const unsigned int spatial_dimension = 3;
     const double domain_low[3] = {0.0, 0.0, 0.0};
-    const double domain_high[3] = {30.0, 30.0, 30.0};
+    const double domain_high[3] = {40.0, 40.0, 40.0};
     const int NSpheres = num_elements_per_group;
     const int NLinkers = num_elements_per_group;
     const int Total_elements = NSpheres + NLinkers;
