@@ -5,9 +5,9 @@
 #include <Kokkos_Macros.hpp>
 #include <Kokkos_Random.hpp>
 #include <Kokkos_DynamicView.hpp>
-
 #include <ArborX.hpp>
 #include <ArborX_Version.hpp>
+#include <Eigen/Dense>
 
 #include <stk_mesh/base/Ngp.hpp>
 #include <stk_mesh/base/NgpAtomics.hpp>
@@ -18,6 +18,8 @@
 #include <stk_mesh/base/GetNgpField.hpp>
 #include "stk_mesh/base/EntityFieldData.hpp"
 
+using Eigen::VectorXd;
+using Eigen::Vector3d;
 
 void compute_maximum_abs_projected_sep(const stk::mesh::NgpMesh & ngpMesh,
                                          stk::mesh::NgpField<double>& linkerLagMultField_device,
@@ -542,25 +544,28 @@ void compute_rate_of_change_of_sep(const stk::mesh::NgpMesh & ngpMesh,
             stk::mesh::FastMeshIndex nodeIndexI = ngpMesh.fast_mesh_index(nodes[0]);
             stk::mesh::FastMeshIndex nodeIndexJ = ngpMesh.fast_mesh_index(nodes[1]);
 
-            mundy::Vec<double, 3> com_velocityI(nodeVelocityField_device(nodeIndexI));
-            mundy::Vec<double, 3> com_velocityJ(nodeVelocityField_device(nodeIndexJ));
+            Vector3d com_velocityI = mundy::get_eigen_vec(nodeVelocityField_device(nodeIndexI));
+            Vector3d com_velocityJ = mundy::get_eigen_vec(nodeVelocityField_device(nodeIndexJ));
 
-            mundy::Vec<double, 3> com_omegaI(nodeOmegaField_device(nodeIndexI));
-            mundy::Vec<double, 3> com_omegaJ(nodeOmegaField_device(nodeIndexJ));
+            Vector3d com_omegaI = mundy::get_eigen_vec(nodeOmegaField_device(nodeIndexI));
+            Vector3d com_omegaJ = mundy::get_eigen_vec(nodeOmegaField_device(nodeIndexJ));
             ////printf("Half way\n");
             //team.team_barrier();
 
 
             stk::mesh::EntityFieldData<double> con_pos = conLocField_device(linkIndex);
-            mundy::Vec<double, 3> con_posI{con_pos[0], con_pos[1], con_pos[2]};
-            mundy::Vec<double, 3> con_posJ{con_pos[3], con_pos[4], con_pos[5]};
+            Vector3d con_posI{con_pos[0], con_pos[1], con_pos[2]};
+            Vector3d con_posJ{con_pos[3], con_pos[4], con_pos[5]};
+
 
             stk::mesh::EntityFieldData<double> con_norm = conNormField_device(linkIndex);
-            mundy::Vec<double, 3> con_normI{con_norm[0], con_norm[1], con_norm[2]};
-            mundy::Vec<double, 3> con_normJ{con_norm[3], con_norm[4], con_norm[5]};
+            Vector3d con_normI{con_norm[0], con_norm[1], con_norm[2]};
+            Vector3d con_normJ{con_norm[3], con_norm[4], con_norm[5]};
 
-            const mundy::Vec<double, 3> con_velI = com_velocityI + com_omegaI.cross(con_posI);
-            const mundy::Vec<double, 3> con_velJ = com_velocityJ + com_omegaJ.cross(con_posJ);
+            const Vector3d con_velI = com_velocityI + com_omegaI.cross(con_posI);
+            const Vector3d con_velJ = com_velocityJ + com_omegaJ.cross(con_posJ);
+
+            //printf("%f %f %f \n", con_velI(0), con_velI(1), con_velI(2));
 
             linkerSignedSepDotField_device(linkIndex, 0) = -con_normI.dot(con_velI) - con_normJ.dot(con_velJ);
 

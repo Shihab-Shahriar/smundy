@@ -4,6 +4,9 @@ project(Example CXX)
 
 set (CMAKE_CXX_STANDARD 17)
 
+message(STATUS "Eign: ${Eigen3_DIR}")
+
+
 include(FetchContent)
 FetchContent_Declare(
   ArborX
@@ -63,3 +66,10 @@ target_include_directories(hello_test SYSTEM PUBLIC ${Trilinos_TPL_INCLUDE_DIRS}
 
 include(GoogleTest)
 gtest_discover_tests(hello_test)
+
+
+
+
+find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+target_link_libraries (example PUBLIC Eigen3::Eigen)
+target_link_libraries (hello_test Eigen3::Eigen)

@@ -6,9 +6,11 @@
 #include <iostream>
 
 #include <Kokkos_Core.hpp>
+#include <Eigen/Dense>
 
 #include "stk_mesh/base/EntityFieldData.hpp"
 
+using Eigen::Vector3d;
 
 namespace mundy{
 
@@ -90,6 +92,16 @@ public:
 
     T data[size];
 };
+
+
+template <typename T>
+KOKKOS_FUNCTION Vector3d get_eigen_vec(const stk::mesh::EntityFieldData<T>& arr){
+    Vector3d v;
+    assert (arr.size()==3);
+    for(int i=0;i<arr.size();i++) v(i) = arr[i];
+    return v;
+}
+
 
 template <typename T, size_t size>
 std::ostream& operator<<(std::ostream& os, const Vec<T,size> & v){
