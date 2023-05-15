@@ -36,7 +36,7 @@ Np,     OpenFPM, Stk,   This (GPU), This (CPU), Speedup vs Best
 
 + Integration with Eigen.
     + In GPU, componenets of a field are not laid out contigiuosly. So can't map to Eigen type without copying.
-    + E.g.: Position. x,y and z components are not contigious like host (on device: *y = data[x+bucket_capacity])
+    + E.g.: Position. x,y and z components are not contigious like host (on device: *y = *(x+bucket_capacity)
     + Still, replaced basic algebra like dot/ cross product with Eigen.
 
 + Why doesn't it work for large number of particles? 
@@ -93,6 +93,8 @@ Total Calls to Kokkos Kernels:                                        34971
 
 ### ToDO
 + Integrate with MundyScratch? 
-+ 
++ Complete Eigen Integration
++ Fix: Nearest neighbor bug
++ More unit tests for device code.
 
 [1] To compile Trilinos, had to turn off STK_tests. It was using nvcc for host code for one partciular test file. Haven't found the root cause. 
